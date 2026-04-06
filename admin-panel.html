@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AS3G Admin Panel | لوحة تحكم الإدارة العليا</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+
+    <style>
+        :root {
+            --bg: #0f172a;
+            --sidebar: #1e293b;
+            --primary: #0ea5e9;
+            --accent: #8b5cf6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: rgba(255,255,255,0.1);
+        }
+
+        * { margin:0; padding:0; box-sizing:border-box; font-family:'Cairo', sans-serif; }
+        body { background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
+
+        /* Login Overlay */
+        #login-overlay {
+            position: fixed; inset:0; background: var(--bg); z-index: 1000;
+            display: flex; justify-content: center; align-items: center; padding: 20px;
+        }
+        .login-card {
+            background: var(--sidebar); padding: 2rem; border-radius: 20px;
+            width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--border);
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+        }
+
+        /* Sidebar */
+        .sidebar { width: 260px; background: var(--sidebar); padding: 2rem 1.5rem; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
+        .sidebar h2 { font-size: 1.2rem; font-weight: 800; color: var(--primary); margin-bottom: 2rem; display: flex; align-items: center; gap: 10px; }
+        
+        .nav-link {
+            padding: 12px 15px; border-radius: 12px; cursor: pointer; transition: 0.3s;
+            margin-bottom: 5px; display: flex; align-items: center; gap: 12px; font-weight: 600;
+        }
+        .nav-link:hover { background: rgba(255,255,255,0.05); }
+        .nav-link.active { background: var(--primary); color: #fff; }
+
+        /* Main */
+        .main { flex: 1; padding: 2.5rem; overflow-y: auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2.5rem; }
+        .stat-card { background: var(--sidebar); padding: 1.5rem; border-radius: 15px; border: 1px solid var(--border); }
+        .stat-card .label { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; }
+        .stat-card .value { font-size: 1.5rem; font-weight: 800; }
+
+        /* Table */
+        .card { background: var(--sidebar); border-radius: 15px; padding: 1.5rem; border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th { text-align: right; color: var(--text-muted); font-size: 0.8rem; padding: 10px; border-bottom: 1px solid var(--border); }
+        td { padding: 12px 10px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        
+        /* UI Elements */
+        .btn { padding: 8px 16px; border-radius: 10px; border: none; cursor: pointer; font-weight: 700; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-accent { background: var(--accent); color: #fff; }
+        .btn-danger { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+        
+        .form-input { 
+            background: #0f172a; border: 1px solid var(--border); border-radius: 10px; 
+            padding: 10px; color: #fff; outline: none; margin-bottom: 10px; width: 100%;
+        }
+
+        .badge { padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; }
+        .badge-active { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+        .badge-expired { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+
+        .view-pane { display: none; }
+        .view-pane.active { display: block; }
+    </style>
+</head>
+<body>
+
+    <!-- Admin Login -->
+    <div id="login-overlay">
+        <div class="login-card">
+            <i class="fa-solid fa-user-shield" style="font-size:3rem; color:var(--primary); margin-bottom:1rem;"></i>
+            <h3>لوحة تحكم النظام</h3>
+            <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:1.5rem;">يرجى تسجيل الدخول بحساب المدير</p>
+            <input type="email" id="admin-email" class="form-input" placeholder="البريد الإلكتروني">
+            <input type="password" id="admin-pass" class="form-input" placeholder="كلمة المرور">
+            <button id="login-btn" class="btn btn-primary" style="width:100%; justify-content:center;" onclick="adminLogin()">دخول الإدارة</button>
+            <div id="login-error" style="color:var(--danger); font-size:0.75rem; margin-top:10px; display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <h2><i class="fa-solid fa-code-branch"></i> AS3G Admin</h2>
+        <div class="nav-link active" onclick="switchView('dashboard', this)"><i class="fa-solid fa-gauge-high"></i> الإحصائيات</div>
+        <div class="nav-link" onclick="switchView('licenses', this)"><i class="fa-solid fa-key"></i> إدارة التراخيص</div>
+        <div class="nav-link" onclick="switchView('stores', this)"><i class="fa-solid fa-store"></i> الفروع النشطة</div>
+        <div style="flex:1;"></div>
+        <div class="nav-link" style="color:var(--danger);" onclick="location.reload()"><i class="fa-solid fa-right-from-bracket"></i> خروج</div>
+    </aside>
+
+    <main class="main">
+        <div class="header">
+            <h1 id="view-title">لوحة الإحصائيات</h1>
+            <div id="sync-status" style="font-size:0.8rem; color:var(--success);"><i class="fa-solid fa-circle"></i> متصل بالسيرفر</div>
+        </div>
+
+        <!-- VIEW: Dashboard -->
+        <div id="view-dashboard" class="view-pane active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="label">إجمالي الفروع المسجلة</div>
+                    <div class="value" id="stat-total-stores">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">التراخيص النشطة</div>
+                    <div class="value" id="stat-active-keys">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">إجمالي مبيعات السيستم</div>
+                    <div class="value" id="stat-total-sales">0.00 ج.م</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>أحدث الأجهزة المنضمة</h3>
+                <div id="recent-stores-list" style="margin-top:1rem;">
+                    <!-- JS Render -->
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW: Licenses -->
+        <div id="view-licenses" class="view-pane">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                <h3>أكواد تفعيل المراقبة</h3>
+                <button class="btn btn-accent" onclick="showAddLicense()">+ إنشاء كود جديد</button>
+            </div>
+            
+            <div class="card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>العميل</th>
+                            <th>الهاتف</th>
+                            <th>الكود</th>
+                            <th>تاريخ الانتهاء</th>
+                            <th>الحالة</th>
+                            <th>العمليات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="license-tbody">
+                        <!-- JS Render -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- VIEW: Stores -->
+        <div id="view-stores" class="view-pane">
+            <h3>قائمة الأجهزة النشطة في المراقبة</h3>
+            <div class="card" style="margin-top:1.5rem;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>كود الجهاز</th>
+                            <th>اسم المتجر</th>
+                            <th>آخر مزامنة</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stores-tbody">
+                        <!-- JS Render -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: Add License -->
+    <div id="license-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:2000; justify-content:center; align-items:center; padding:20px;">
+        <div class="card" style="max-width:400px; width:100%; text-align:center;">
+            <i class="fa-solid fa-plus-circle" style="font-size:2.5rem; color:var(--accent); margin-bottom:1rem;"></i>
+            <h3>إنشاء ترخيص جديد</h3>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1.5rem;">حدد مدة صلاحية الكود المطلوب إنشاؤه</p>
+            
+            <select id="lic-duration" class="form-input">
+                <option value="30">شهر واحد (30 يوم)</option>
+                <option value="90">3 شهور (90 يوم)</option>
+                <option value="180">6 شهور (180 يوم)</option>
+                <option value="365">سنة كاملة (365 يوم)</option>
+                <option value="9999">مدى الحياة (Infinite)</option>
+            </select>
+            
+            <input type="text" id="lic-name" class="form-input" placeholder="اسم العميل / الصيدلية / المحل">
+            <input type="text" id="lic-phone" class="form-input" placeholder="رقم الهاتف للتواصل">
+            <input type="text" id="lic-address" class="form-input" placeholder="العنوان أو الملاحظات">
+            
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button class="btn btn-accent" style="flex:1; justify-content:center;" onclick="generateLicense()">إصدار الكود</button>
+                <button class="btn" style="flex:1; justify-content:center; background:rgba(255,255,255,0.05);" onclick="document.getElementById('license-modal').style.display='none'">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Firebase Config ---
+        const config = {
+            apiKey: "AIzaSyApKKPYJEb1eojgxvq_4i8QhLwhX83Q7TE",
+            authDomain: "sober-f4027.firebaseapp.com",
+            projectId: "sober-f4027",
+            storageBucket: "sober-f4027.firebasestorage.app",
+            messagingSenderId: "97712177020",
+            appId: "1:97712177020:web:f8ad01906e1661b60daef9"
+        };
+        firebase.initializeApp(config);
+        const db = firebase.firestore();
+
+        // --- Auth Logic ---
+        function adminLogin() {
+            const email = document.getElementById('admin-email').value;
+            const pass = document.getElementById('admin-pass').value;
+            const btn = document.getElementById('login-btn');
+            const err = document.getElementById('login-error');
+
+            btn.disabled = true;
+            btn.innerText = 'جاري التحقق...';
+            err.style.display = 'none';
+
+            firebase.auth().signInWithEmailAndPassword(email, pass)
+                .then(() => {
+                    // Success handled by onAuthStateChanged
+                })
+                .catch(e => {
+                    btn.disabled = false;
+                    btn.innerText = 'دخول الإدارة';
+                    err.innerText = 'خطأ في الدخول: ' + e.message;
+                    err.style.display = 'block';
+                });
+        }
+
+        firebase.auth().onAuthStateChanged(user => {
+            if (user) {
+                isAuthorized = true;
+                document.getElementById('login-overlay').style.display = 'none';
+                initPanel();
+            } else {
+                isAuthorized = false;
+                document.getElementById('login-overlay').style.display = 'flex';
+            }
+        });
+
+        function switchView(view, el) {
+            document.querySelectorAll('.view-pane').forEach(v => v.classList.remove('active'));
+            document.getElementById('view-' + view).classList.add('active');
+            
+            document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+            el.classList.add('active');
+            
+            const titles = { dashboard: 'الإحصائيات', licenses: 'إدارة التراخيص', stores: 'الفروع النشطة' };
+            document.getElementById('view-title').innerText = titles[view];
+        }
+
+        function initPanel() {
+            loadStats();
+            loadLicenses();
+            loadStores();
+            
+            // Auto refresh stats every 30s
+            setInterval(() => {
+                if(isAuthorized) {
+                    loadStats();
+                    loadLicenses();
+                    loadStores();
+                }
+            }, 30000);
+        }
+
+        async function loadStats() {
+            try {
+                const storesSnap = await db.collection('monitoring').get();
+                const licSnap = await db.collection('monitor_licenses').where('isActive','==',true).get();
+                
+                document.getElementById('stat-total-stores').innerText = storesSnap.size;
+                document.getElementById('stat-active-keys').innerText = licSnap.size;
+                
+                let totalSales = 0;
+                storesSnap.forEach(doc => {
+                    const data = doc.data().data;
+                    if(data && data.summary) {
+                        totalSales += (parseFloat(data.summary.totalSalesToday) || 0);
+                    }
+                });
+                document.getElementById('stat-total-sales').innerText = totalSales.toLocaleString('en-US') + ' ج.م';
+            } catch(e) { console.error(e); }
+        }
+
+        function loadLicenses() {
+            db.collection('monitor_licenses').orderBy('expiry','desc').limit(50).onSnapshot(snap => {
+                const tbody = document.getElementById('license-tbody');
+                tbody.innerHTML = '';
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const expiry = d.expiry.seconds ? new Date(d.expiry.seconds * 1000) : new Date(d.expiry);
+                    const isExpired = expiry < new Date();
+                    
+                    tbody.innerHTML += `
+                        <tr>
+                            <td style="font-weight:700;">${d.customerName || '--'}</td>
+                            <td style="font-size:0.8rem;">${d.phone || '--'}</td>
+                            <td style="font-family:monospace; font-weight:700; color:var(--accent);">${doc.id}</td>
+                            <td>${expiry.toLocaleDateString('en-US')}</td>
+                            <td><span class="badge ${isExpired ? 'badge-expired' : 'badge-active'}">${isExpired ? 'منتهي' : (d.isActive ? 'نشط' : 'معطل')}</span></td>
+                            <td>
+                                <button class="btn btn-danger" style="padding:4px 8px;" onclick="deleteLicense('${doc.id}')"><i class="fa-solid fa-trash"></i></button>
+                                <button class="btn" style="padding:4px 8px; background:rgba(255,255,255,0.05);" onclick="toggleLicense('${doc.id}', ${!d.isActive})">
+                                    <i class="fa-solid ${d.isActive ? 'fa-pause' : 'fa-play'}"></i>
+                                </button>
+                                <button class="btn btn-accent" style="padding:4px 8px;" title="تجديد الاشتراك" onclick="promptRenew('${doc.id}')">
+                                    <i class="fa-solid fa-calendar-plus"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            });
+        }
+
+        function loadStores() {
+            db.collection('monitoring').onSnapshot(snap => {
+                const tbody = document.getElementById('stores-tbody');
+                tbody.innerHTML = '';
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const last = d.lastSync ? new Date(d.lastSync).toLocaleString('en-US') : 'غير متوفر';
+                    
+                    tbody.innerHTML += `
+                        <tr>
+                            <td style="font-family:monospace; font-size:0.8rem;">${doc.id}</td>
+                            <td style="font-weight:700;">${d.shopName || 'متجر جديد'}</td>
+                            <td>${last}</td>
+                            <td>
+                                <button class="btn btn-danger" style="padding:4px 8px;" onclick="deleteStore('${doc.id}')"><i class="fa-solid fa-user-minus"></i></button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            });
+        }
+
+        function showAddLicense() {
+            document.getElementById('license-modal').style.display = 'flex';
+        }
+
+        async function generateLicense() {
+            const days = parseInt(document.getElementById('lic-duration').value);
+            const name = document.getElementById('lic-name').value.trim();
+            const phone = document.getElementById('lic-phone').value.trim();
+            const addr = document.getElementById('lic-address').value.trim();
+            
+            if(!name) return alert('اسم العميل مطلوب!');
+            
+            const code = 'AS3G-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+            
+            const expiry = new Date();
+            expiry.setDate(expiry.getDate() + days);
+
+            try {
+                await db.collection('monitor_licenses').doc(code).set({
+                    customerName: name,
+                    phone: phone,
+                    address: addr,
+                    expiry: firebase.firestore.Timestamp.fromDate(expiry),
+                    isActive: true,
+                    createdAt: Date.now()
+                });
+                document.getElementById('license-modal').style.display = 'none';
+                alert('تم إنشاء الكود بنجاح للعميل (' + name + '):\n' + code);
+                
+                // Clear inputs
+                document.getElementById('lic-name').value = '';
+                document.getElementById('lic-phone').value = '';
+                document.getElementById('lic-address').value = '';
+            } catch(e) { alert('خطأ: ' + e.message); }
+        }
+
+        async function deleteLicense(id) {
+            if(confirm('هل أنت متأكد من حذف هذا الكود نهائياً؟')) {
+                await db.collection('monitor_licenses').doc(id).delete();
+            }
+        }
+
+        async function toggleLicense(id, status) {
+            await db.collection('monitor_licenses').doc(id).update({ isActive: status });
+        }
+
+        async function deleteStore(id) {
+            if(confirm('هل تريد إلغاء ربط هذا الفرع وحذف بياناته السحابية؟')) {
+                await db.collection('monitoring').doc(id).delete();
+            }
+        }
+
+        async function promptRenew(id) {
+            const days = prompt('ادخل عدد الأيام التي تريد إضافتها لهذا الكود (مثلاً: 30)');
+            if(!days || isNaN(days)) return;
+            
+            const doc = await db.collection('monitor_licenses').doc(id).get();
+            if(!doc.exists) return;
+            
+            const data = doc.data();
+            let currentExpiry = data.expiry.seconds ? data.expiry.seconds * 1000 : data.expiry;
+            
+            // If already expired, start from today. If not, add to current.
+            const base = Math.max(currentExpiry, Date.now());
+            const newExpiry = new Date(base + (parseInt(days) * 24 * 60 * 60 * 1000));
+            
+            await db.collection('monitor_licenses').doc(id).update({
+                expiry: firebase.firestore.Timestamp.fromDate(newExpiry),
+                isActive: true
+            });
+            alert('✅ تم تجديد الاشتراك بنجاح حتى تاريخ: ' + newExpiry.toLocaleDateString());
+        }
+
+    </script>
+</body>
+</html>
